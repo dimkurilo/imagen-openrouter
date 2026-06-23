@@ -3,6 +3,43 @@
  * Supports multiple models via OpenRouter API
  */
 
+// ===== Remote Logging =====
+const LOG_SERVER = 'http://localhost:3001/log';
+let _logSeq = 0;
+function appLog(...args) {
+    const msg = args.join(' ');
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}]`, msg);
+    _logSeq++;
+    fetch(LOG_SERVER, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, timestamp, seq: _logSeq })
+    }).catch(() => {});
+}
+function appWarn(...args) {
+    const msg = args.join(' ');
+    const timestamp = new Date().toISOString();
+    console.warn(`[${timestamp}]`, msg);
+    _logSeq++;
+    fetch(LOG_SERVER, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: '[WARN] ' + msg, timestamp, seq: _logSeq })
+    }).catch(() => {});
+}
+function appError(...args) {
+    const msg = args.join(' ');
+    const timestamp = new Date().toISOString();
+    console.error(`[${timestamp}]`, msg);
+    _logSeq++;
+    fetch(LOG_SERVER, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: '[ERROR] ' + msg, timestamp, seq: _logSeq })
+    }).catch(() => {});
+}
+
 // ===== IndexedDB Storage =====
 const ImagenDB = {
     dbName: 'ImagenDB',
@@ -116,8 +153,15 @@ const MODEL_CONFIGS = {
         supportsImageInput: true,
         maxReferences: 3
     },
+    'google/gemini-3.1-flash-image': {
+        name: 'Gemini 3.1 Flash Image',
+        supportsImageSize: true,
+        supportsAspectRatio: true,
+        supportsImageInput: true,
+        maxReferences: 3
+    },
     'google/gemini-3.1-flash-image-preview': {
-        name: 'Gemini 3.1 Flash Image (Preview)',
+        name: 'Gemini 3.1 Flash Image',
         supportsImageSize: true,
         supportsAspectRatio: true,
         supportsImageInput: true,
@@ -223,7 +267,7 @@ const elements = {
     charCount: document.getElementById('charCount'),
     generateBtn: document.getElementById('generateBtn'),
     gallery: document.getElementById('gallery'),
-    galleryEmpty: document.getElementById('galleryEmpty'),
+    galleryHeader: document.getElementById('galleryHeader'),
     clearGallery: document.getElementById('clearGallery'),
 
     // Modal
@@ -239,21 +283,38 @@ const elements = {
 
 // ===== Initialization =====
 async function init() {
+    appLog('[Imagen] init() started');
+
     // Load saved API key
     if (state.apiKey) {
         elements.apiKey.value = state.apiKey;
+        appLog('[Imagen] API key restored from localStorage');
     }
 
     // Render reference slots
     renderReferenceSlots();
+    appLog('[Imagen] referenceSlots rendered');
 
     // Restore saved model selection
     if (state.selectedModel) {
+        // Check if the saved model value is still valid
         const savedOption = document.querySelector(`.custom-select-option[data-value="${state.selectedModel}"]`);
         if (savedOption) {
             document.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
             savedOption.classList.add('selected');
             elements.modelSelectValue.textContent = savedOption.textContent;
+            appLog('[Imagen] Model restored:', state.selectedModel);
+        } else {
+            // Backward compat: saved model value is no longer in dropdown, reset to default
+            appWarn('[Imagen] Saved model not found in dropdown, resetting to default');
+            state.selectedModel = 'google/gemini-2.5-flash-image';
+            localStorage.setItem('imagen_model', state.selectedModel);
+            const defaultOption = document.querySelector(`.custom-select-option[data-value="${state.selectedModel}"]`);
+            if (defaultOption) {
+                document.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+                defaultOption.classList.add('selected');
+                elements.modelSelectValue.textContent = defaultOption.textContent;
+            }
         }
     }
 
@@ -281,23 +342,36 @@ async function init() {
     // Load images from IndexedDB
     try {
         state.images = await ImagenDB.getAllImages();
+        appLog('[Imagen] Images loaded from IndexedDB:', state.images.length);
     } catch (error) {
-        console.error('Failed to load images from IndexedDB:', error);
+        appError('[Imagen] Failed to load images from IndexedDB:', error);
         state.images = [];
     }
 
     // Render gallery
     renderGallery();
+    appLog('[Imagen] Gallery rendered');
 
     // Set up event listeners
     setupEventListeners();
+    appLog('[Imagen] Event listeners attached');
 
     // Initialize UI state
     updateGeminiOptionsVisibility();
+    appLog('[Imagen] init() complete');
 }
 
 // ===== Event Listeners =====
 function setupEventListeners() {
+    appLog('[Imagen] setupEventListeners()');
+
+    // Check all elements exist
+    for (const [key, el] of Object.entries(elements)) {
+        if (!el) {
+            appWarn('[Imagen] Missing element:', key);
+        }
+    }
+
     // Custom dropdown - toggle
     elements.modelSelectTrigger.addEventListener('click', () => {
         elements.modelSelectContainer.classList.toggle('open');
@@ -379,8 +453,11 @@ function setupEventListeners() {
 
     // API Key
     elements.saveApiKey.addEventListener('click', () => {
-        state.apiKey = elements.apiKey.value.trim();
+        const val = elements.apiKey.value.trim();
+        appLog('[Imagen] Save Key clicked, value length:', val.length);
+        state.apiKey = val;
         localStorage.setItem('imagen_api_key', state.apiKey);
+        appLog('[Imagen] API key saved to localStorage, length:', state.apiKey.length);
         showToast('API key saved!', 'success');
     });
 
@@ -427,6 +504,14 @@ function setupEventListeners() {
 
     // Paste images from clipboard
     document.addEventListener('paste', handlePaste);
+
+    // Global error handler
+    window.addEventListener('error', (e) => {
+        appError('[Imagen] Uncaught error:', e.message, e.filename, e.lineno);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+        appError('[Imagen] Unhandled promise rejection:', e.reason);
+    });
 
     // Warn user before leaving if there are pending generations
     window.addEventListener('beforeunload', (e) => {
@@ -602,6 +687,8 @@ function clearAllReferences() {
 // ===== Image Generation =====
 async function generateImages() {
     const prompt = elements.promptInput.value.trim();
+    appLog('[Imagen] Generate clicked, prompt length:', prompt.length);
+    appLog('[Imagen] API key present:', !!state.apiKey, 'model:', state.selectedModel);
 
     if (!prompt) {
         showToast('Please enter a prompt', 'warning');
@@ -609,11 +696,17 @@ async function generateImages() {
     }
 
     if (!state.apiKey) {
+        appWarn('[Imagen] Blocked: no API key');
         showToast('Please enter your OpenRouter API key', 'error');
         return;
     }
 
     const modelConfig = MODEL_CONFIGS[state.selectedModel];
+    if (!modelConfig) {
+        showToast(`Unknown model: ${state.selectedModel}`, 'error');
+        appError('[Imagen] Unknown model:', state.selectedModel);
+        return;
+    }
     const currentReferences = state.references.length > 0 ? [...state.references] : [];
     const currentModel = state.selectedModel;
     const currentSize = state.imageSize;
@@ -699,6 +792,8 @@ async function generateImages() {
 }
 
 async function generateSingleImage(prompt, modelConfig) {
+    appLog('[Imagen] generateSingleImage() model:', state.selectedModel);
+
     // Build message content
     const content = [];
 
@@ -748,6 +843,10 @@ async function generateSingleImage(prompt, modelConfig) {
         requestBody.aspect_ratio = state.aspectRatio;
     }
 
+    appLog('[Imagen] Sending API request to OpenRouter');
+    appLog('[Imagen] Request model:', requestBody.model);
+    appLog('[Imagen] API key (first 8 chars):', state.apiKey.substring(0, 8) + '...');
+
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -759,12 +858,16 @@ async function generateSingleImage(prompt, modelConfig) {
         body: JSON.stringify(requestBody)
     });
 
+    appLog('[Imagen] API response status:', response.status);
+
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        appError('[Imagen] API error response:', errorData);
         throw new Error(errorData.error?.message || `API error: ${response.status}`);
     }
 
     const data = await response.json();
+    appLog('[Imagen] API response received, choices:', data.choices?.length);
 
     // Extract image from response
     // OpenRouter returns images in different formats depending on the model
@@ -828,13 +931,15 @@ async function generateSingleImage(prompt, modelConfig) {
 
 // ===== Gallery =====
 function renderGallery() {
+    appLog('[Imagen] renderGallery() images:', state.images.length, 'pending:', state.pendingBatches.length);
+
     const hasPending = state.pendingBatches.length > 0;
     const hasImages = state.images.length > 0;
 
+    elements.galleryHeader.classList.toggle('visible', hasImages || hasPending);
+
     if (!hasImages && !hasPending) {
-        elements.galleryEmpty.style.display = 'flex';
         elements.gallery.innerHTML = '';
-        elements.gallery.appendChild(elements.galleryEmpty);
         return;
     }
 
@@ -966,9 +1071,6 @@ function renderGallery() {
 
 // ===== Incremental Gallery Updates =====
 function addLoadingPlaceholders(batch, count) {
-    // Hide empty state if showing
-    elements.galleryEmpty.style.display = 'none';
-    
     for (let i = 0; i < count; i++) {
         const placeholder = createPlaceholderElement(batch);
         elements.gallery.insertBefore(placeholder, elements.gallery.firstChild);
@@ -1014,18 +1116,15 @@ function removeOnePlaceholder(batchId) {
         placeholder.remove();
     }
     
-    // Show empty state if gallery is now empty
-    if (elements.gallery.children.length === 0 || 
-        (elements.gallery.children.length === 1 && elements.gallery.contains(elements.galleryEmpty))) {
-        elements.galleryEmpty.style.display = 'flex';
-        if (!elements.gallery.contains(elements.galleryEmpty)) {
-            elements.gallery.appendChild(elements.galleryEmpty);
-        }
+    if (elements.gallery.children.length === 0 && state.images.length === 0) {
+        elements.galleryHeader.classList.remove('visible');
     }
 }
 
 function prependImageCard(image, index) {
     const card = createImageCardElement(image, index);
+    
+    elements.galleryHeader.classList.add('visible');
     
     // Insert after any remaining placeholders
     const firstNonPlaceholder = elements.gallery.querySelector('.image-card:not(.loading-placeholder)');
@@ -1035,7 +1134,6 @@ function prependImageCard(image, index) {
         elements.gallery.appendChild(card);
     }
     
-    // Update indices on existing cards since we prepended
     updateCardIndices();
 }
 
@@ -1150,12 +1248,8 @@ async function deleteImage(index) {
         card.remove();
     }
     
-    // Show empty state if gallery is now empty
     if (state.images.length === 0 && state.pendingBatches.length === 0) {
-        elements.galleryEmpty.style.display = 'flex';
-        if (!elements.gallery.contains(elements.galleryEmpty)) {
-            elements.gallery.appendChild(elements.galleryEmpty);
-        }
+        elements.galleryHeader.classList.remove('visible');
     }
     
     showToast('Image deleted', 'success');

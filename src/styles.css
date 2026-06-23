@@ -539,7 +539,7 @@ body {
     font-size: 1rem;
     font-family: inherit;
     resize: none;
-    min-height: 80px;
+    min-height: 40vh;
 }
 
 .prompt-container textarea:focus {
@@ -667,9 +667,13 @@ body {
 
 /* ===== Gallery ===== */
 .gallery-header {
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: space-between;
+}
+
+.gallery-header.visible {
+    display: flex;
 }
 
 .gallery-header h2 {
