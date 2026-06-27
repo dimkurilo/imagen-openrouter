@@ -1,116 +1,171 @@
-# Imagen - AI Image Generation Tool
+# Imagen — AI Image Generation Tool (fork)
 
-A powerful client-side AI image generation tool using OpenRouter API. Generate thumbnails, artwork, and creative images with multiple state-of-the-art models.
+> **Форк** от [TurboPlanner/imagen-openrouter](https://github.com/TurboPlanner/imagen-openrouter) (исходный: [yusufipk/imagen-openrouter](https://github.com/yusufipk/imagen-openrouter)).
+>
+> Ключевые отличия: [смотри ниже](#-fork-differences).
+
+Pure-frontend генератор изображений через OpenRouter API (`/api/v1/images`).  
+38 моделей, динамические controls по `supported_parameters`, цены до генерации, баланс, AI Prompt Assistant.
 
 ![Imagen UI](assets/UI.webp)
 ![Imagen UI-1](assets/UI-1.webp)
 
+---
+
 ## ✨ Features
 
-### 🎨 Multi-Model Support
-- **Gemini 2.5 Flash Image** - Google's fast image generation
-- **Gemini 2.5 Flash (Preview)** - Preview version with latest features
-- **Gemini 3.1 Flash (Preview)** - Newer Gemini preview image model
-- **Gemini 3 Pro (Preview)** - Advanced model, up to 14 reference images
-- **GPT-5 Image** - OpenAI's latest image model
-- **GPT-5 Image Mini** - Faster, smaller GPT-5 variant
-- **Flux 2 Pro / Max / Flex / Klein** - Black Forest Labs models
-- **Seedream 4.5** - ByteDance's image model
-- **Riverflow V2** - Fast/Standard/Max variants
+### 🎨 Multi-Model Support (38 моделей)
+Модели загружаются динамически из `GET /api/v1/images/models`:
+- **Google**: Nano Banana 2 (Gemini 3.1 Flash), Nano Banana (Gemini 2.5 Flash), Gemini 3 Pro
+- **OpenAI**: GPT Image 2, GPT-5 Image, GPT Image 1, mini-варианты
+- **Black Forest Labs**: Flux.2 Pro / Max / Flex / Klein 4B
+- **ByteDance**: Seedream 4.5
+- **Sourceful**: Riverflow V2 / V2.5 (Fast, Standard, Max)
+- **Recraft**: Recraft V3 / V4 (Pro, Turbo), включая vector output
+- **xAI**: Grok Imagine
+- **Microsoft**: MAI Image 2.5
+- **OpenRouter**: Auto Router
 
-### 📐 Flexible Output Options
-- **Resolution**: 1K, 2K, 4K (Gemini models)
-- **Aspect Ratios**: 1:1, 16:9, 9:16, 4:3, 3:4, 3:2
-- **Batch Generation**: Up to 8 images at once
+### 🎛️ Dynamic Controls
+Каждый контрол рендерится строго по `supported_parameters` выбранной модели:
+- **Resolution**: 512, 1K, 2K, 4K (Gemini, Flux)
+- **Quality**: Auto, Low, Medium, High (GPT)
+- **Background**: Auto, Opaque, Transparent (GPT)
+- **Aspect Ratio**: 1:1, 16:9, 9:16, 4:3, 3:4, 3:2
+- **Batch**: до 10 картинок (зависит от модели)
+
+### 💰 Real-Time Pricing
+- Оценка стоимости ДО генерации (по токенам, мегапикселям или за картинку)
+- 3 единицы расчёта: `token`, `megapixel`, `image` — в зависимости от модели
+- Баланс OpenRouter: бейдж в хедере + модалка с `credits`/`key`
+
+### 🤖 AI Prompt Assistant
+- Встроенный ассистент для генерации промптов (через cheap LLM)
+- Адаптирует промпт под выбранную image-модель
+- Поддерживает reference images (vision)
+- Авто-вставка результата в поле ввода
 
 ### 🖼️ Reference Image Support
-- Upload unlimited reference images
-- Drag & drop support
-- Use generated images as references
-- Click X to remove individual references
+- Загрузка, drag & drop, paste
+- Использование сгенерированных картинок как референсов
 
-### 💾 Persistent Storage
-- **IndexedDB storage**
-- Store hundreds of images
-- Images persist across browser sessions
+### 💾 Persistent Storage (IndexedDB)
+- Картинки сохраняются в браузере
+- Галерея, модалка с метаданными, recreate, download
 
-### 🎯 Gallery Features
-- View all generated images
-- Delete individual images (hover to reveal 🗑️ button)
-- Click any image for full view + metadata
-- Clear entire gallery option
+### ⌨️ Shortcuts
+- `Ctrl+Enter` — Generate
+- `Escape` — Close modal
 
-### ♻️ Recreate Feature
-- Click any image to restore its original settings
-- Instantly iterate on previous generations
+---
 
 ## 🚀 Quick Start
 
-1. Clone this repository
-2. Start a local server:
-   ```bash
-   python3 -m http.server 8080
-   # or
-   npx serve .
-   ```
-3. Open http://localhost:8080
-4. Enter your OpenRouter API key
-5. Write a prompt and click Generate!
+```bash
+# 1. Clone
+git clone https://github.com/dimkurilo/imagen-openrouter.git
+cd imagen-openrouter
+
+# 2. Setup API key
+cp config.example.js config.js
+# → открой config.js и вставь свой OpenRouter API ключ
+
+# 3. Start local server
+python3 -m http.server 8237 --bind 127.0.0.1
+
+# 4. Open
+open http://127.0.0.1:8237
+```
 
 ## 🔑 Getting an OpenRouter API Key
 
 1. Go to [OpenRouter](https://openrouter.ai/)
-2. Create an account
-3. Navigate to **Keys** section
-4. Create a new API key
-5. Copy and paste it into the tool
+2. Create an account → **Keys**
+3. Create a new key → скопировать в `config.js`
 
-## 🔒 Privacy & Security
+## 🔒 Security Note
 
-This is a **100% client-side application**:
+⚠️ **For local use only.**  
+API key is loaded from `config.js` (not entered in the UI).  
+`config.js` is in `.gitignore` — it will NOT be committed.  
+The key is visible in DevTools — this is a trade-off of the pure-frontend architecture.
 
-- ✅ API keys are stored in YOUR browser only
-- ✅ Generated images are stored in YOUR browser only (IndexedDB)
-- ✅ No data is sent to any server except OpenRouter API
-- ✅ Safe to deploy as a static website
+- ✅ API key in `config.js` (gitignored)
+- ✅ Generated images in IndexedDB (your browser only)
+- ✅ No backend server, no proxy
+- ⚠️ Do NOT deploy publicly with a real API key
 
-## ⌨️ Keyboard Shortcuts
+---
 
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl + Enter` | Generate images |
-| `Escape` | Close image modal |
+## 🧪 Testing
 
-## 🛠️ Tech Stack
+```bash
+# Install
+npm install
 
-- **Frontend**: Pure HTML/CSS/JavaScript (no dependencies)
-- **API**: OpenRouter for model access
-- **Storage**: IndexedDB for image persistence
-- **Styling**: Custom CSS with CSS variables
+# Run headless
+npx playwright test
+
+# UI watch mode
+npx playwright test --ui
+
+# Visible browser
+npx playwright test --headed
+```
+
+Tests are hermetic — all OpenRouter API calls are mocked. No real key, no spend.
+
+---
+
+## 🗺️ Roadmap
+
+- [x] `/api/v1/images` endpoint (38 моделей)
+- [x] Dynamic controls by `supported_parameters`
+- [x] Real-time pricing estimate
+- [x] OpenRouter balance display
+- [x] AI Prompt Assistant
+- [x] Regression tests (Playwright, 6 tests)
+- [ ] `gpt-5.4-image-2` support
+- [ ] Image-to-image editing
+- [ ] History / favorites
+
+---
+
+## 🔄 Fork Differences
+
+Чем этот форк отличается от оригинального [TurboPlanner/imagen-openrouter](https://github.com/TurboPlanner/imagen-openrouter):
+
+| Аспект | Оригинал | Форк |
+|--------|----------|------|
+| **API** | `/chat/completions` (6 моделей) | `/api/v1/images` (38 моделей) |
+| **API Key** | UI-инпут + localStorage | `config.js` (gitignored, не вводится в браузере) |
+| **Model Selector** | Хардкоженный список | Динамический из `GET /api/v1/images/models` |
+| **UI Controls** | Статичные | По `supported_parameters` модели |
+| **Pricing** | Нет | Real-time оценка (token/megapixel/image) |
+| **Balance** | Нет | Бейдж + модалка с `/credits` |
+| **Prompt Assistant** | Нет | AI-генерация промптов с vision |
+| **Тесты** | Нет | Playwright, 6 hermetic-тестов |
+
+---
 
 ## 📁 Project Structure
 
 ```
-imagen/
-├── src/            # Source code (JS/CSS)
-├── assets/         # Images and design assets
-├── index.html      # Main entry point
-└── README.md       # Documentation
+imagen-openrouter/
+├── config.example.js     # Template — copy to config.js
+├── index.html            # Entry point
+├── src/
+│   ├── app.js            # Main logic
+│   ├── models.js         # Model loader + pricing
+│   └── styles.css
+├── tests/
+│   ├── fixtures/         # API snapshots (public, no secrets)
+│   └── imagen.spec.js    # 6 regression tests
+├── package.json          # Playwright deps
+├── playwright.config.js  # Test config
+└── assets/               # Screenshots, favicon
 ```
 
 ## 📜 License
 
-This project is licensed under the **GNU General Public License v3.0** (GPL-3.0).
-
-You are free to:
-- ✅ Use this software for any purpose
-- ✅ Study how the software works and modify it
-- ✅ Distribute copies of the software
-- ✅ Distribute modified versions
-
-Under the condition that:
-- 📋 You include the original license and copyright notice
-- 📋 You disclose the source code when distributing
-- 📋 Modified versions must also be licensed under GPL-3.0
-
-See the [LICENSE](LICENSE) file for full details.
+GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE).

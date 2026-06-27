@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Imagen</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="src/styles.css">
+    <link rel="stylesheet" href="src/styles.css?v=20260626">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 
@@ -24,14 +24,16 @@
                     </svg>
                     Imagen
                 </h1>
+                <div class="balance-badge" id="balanceBadge" title="Click for details">
+                    <span class="balance-label">OR</span>
+                    <span class="balance-amount" id="balanceAmount">Click</span>
+                </div>
             </div>
 
             <!-- Reference Images Section -->
             <div class="reference-section">
                 <h3>Reference Images</h3>
-                <div class="reference-slots" id="referenceSlots">
-                    <!-- Slots rendered dynamically by JS -->
-                </div>
+                <div class="reference-slots" id="referenceSlots"></div>
                 <button type="button" class="btn btn-ghost" id="clearReferences">Clear All References</button>
             </div>
 
@@ -40,50 +42,61 @@
                 <h3>Model</h3>
                 <div class="custom-select" id="modelSelectContainer">
                     <div class="custom-select-trigger" id="modelSelectTrigger">
-                        <span id="modelSelectValue">Gemini 2.5 Flash Image</span>
+                        <span id="modelSelectValue">Loading models...</span>
                         <span class="custom-select-arrow">▾</span>
                     </div>
-                    <div class="custom-select-options" id="modelSelectOptions">
-                        <div class="custom-select-option selected" data-value="google/gemini-2.5-flash-image">Gemini 2.5
-                            Flash Image</div>
-                        <div class="custom-select-option" data-value="google/gemini-2.5-flash-image-preview">Gemini 2.5
-                            Flash (Preview)</div>
-                        <div class="custom-select-option" data-value="google/gemini-3.1-flash-image">Gemini 3.1
-                            Flash Image</div>
-                        <div class="custom-select-option" data-value="google/gemini-3-pro-image-preview">Gemini 3 Pro
-                            (Preview)</div>
-                        <div class="custom-select-option" data-value="openai/gpt-5-image">GPT-5 Image</div>
-                        <div class="custom-select-option" data-value="openai/gpt-5-image-mini">GPT-5 Image Mini</div>
-                        <div class="custom-select-option" data-value="black-forest-labs/flux.2-pro">Flux 2 Pro</div>
-                        <div class="custom-select-option" data-value="black-forest-labs/flux.2-max">Flux 2 Max</div>
-                        <div class="custom-select-option" data-value="black-forest-labs/flux.2-flex">Flux 2 Flex</div>
-                        <div class="custom-select-option" data-value="black-forest-labs/flux.2-klein-4b">Flux 2 Klein 4B
-                        </div>
-                        <div class="custom-select-option" data-value="bytedance-seed/seedream-4.5">Seedream 4.5</div>
-                        <div class="custom-select-option" data-value="sourceful/riverflow-v2-fast-preview">Riverflow V2
-                            Fast</div>
-                        <div class="custom-select-option" data-value="sourceful/riverflow-v2-standard-preview">Riverflow
-                            V2 Standard</div>
-                        <div class="custom-select-option" data-value="sourceful/riverflow-v2-max-preview">Riverflow V2
-                            Max</div>
-                    </div>
+                    <div class="custom-select-options" id="modelSelectOptions"></div>
+                </div>
+                <label class="toggle-all-label" id="showAllModelsLabel" style="display:none;">
+                    <input type="checkbox" id="showAllModels"> Show all 38 models
+                </label>
+            </div>
+
+            <!-- Price Info -->
+            <div class="config-section" id="priceInfo">
+                <h3>💰 Pricing</h3>
+                <div id="priceDetails">
+                    <p class="price-rate" id="priceRate">Select a model</p>
+                    <p class="price-estimate" id="priceEstimate"></p>
                 </div>
             </div>
 
-            <!-- Image Quality (Gemini specific) -->
-            <div class="config-section" id="geminiOptions">
-                <h3>Image Size</h3>
+            <!-- Resolution -->
+            <div class="config-section" id="resolutionSection" style="display:none;">
+                <h3>Resolution</h3>
                 <div class="button-group">
-                    <button class="btn-toggle active" data-size="1024x1024" data-quality="1K">1K</button>
-                    <button class="btn-toggle" data-size="2048x2048" data-quality="2K">2K</button>
-                    <button class="btn-toggle" data-size="4096x4096" data-quality="4K">4K</button>
+                    <button class="btn-toggle active" data-resolution="512">512</button>
+                    <button class="btn-toggle" data-resolution="1K">1K</button>
+                    <button class="btn-toggle" data-resolution="2K">2K</button>
+                    <button class="btn-toggle" data-resolution="4K">4K</button>
+                </div>
+            </div>
+
+            <!-- Quality -->
+            <div class="config-section" id="qualitySection" style="display:none;">
+                <h3>Quality</h3>
+                <div class="button-group">
+                    <button class="btn-toggle" data-quality="auto">Auto</button>
+                    <button class="btn-toggle" data-quality="low">Low</button>
+                    <button class="btn-toggle active" data-quality="medium">Medium</button>
+                    <button class="btn-toggle" data-quality="high">High</button>
+                </div>
+            </div>
+
+            <!-- Background -->
+            <div class="config-section" id="backgroundSection" style="display:none;">
+                <h3>Background</h3>
+                <div class="button-group">
+                    <button class="btn-toggle" data-background="auto">Auto</button>
+                    <button class="btn-toggle active" data-background="opaque">Opaque</button>
+                    <button class="btn-toggle" data-background="transparent" id="transparentBgBtn">Transparent</button>
                 </div>
             </div>
 
             <!-- Aspect Ratio -->
-            <div class="config-section">
+            <div class="config-section" id="aspectRatioSection">
                 <h3>Aspect Ratio</h3>
-                <div class="aspect-grid">
+                <div class="aspect-grid" id="aspectRatioGrid">
                     <button class="btn-aspect active" data-ratio="1:1">1:1</button>
                     <button class="btn-aspect" data-ratio="16:9">16:9</button>
                     <button class="btn-aspect" data-ratio="9:16">9:16</button>
@@ -94,35 +107,64 @@
             </div>
 
             <!-- Number of Images -->
-            <div class="config-section">
+            <div class="config-section" id="imageCountSection">
                 <h3>Number of Images</h3>
                 <div class="number-input-group">
                     <button type="button" class="btn-number" id="decreaseCount">−</button>
-                    <input type="number" id="imageCount" value="1" min="1" max="8" class="number-input">
+                    <input type="number" id="imageCount" value="1" min="1" max="10" class="number-input">
                     <button type="button" class="btn-number" id="increaseCount">+</button>
                 </div>
-            </div>
-
-            <!-- API Key -->
-            <div class="config-section">
-                <h3>OpenRouter API Key</h3>
-                <input type="password" id="apiKey" placeholder="sk-or-..." class="text-input">
-                <button type="button" class="btn btn-ghost" id="saveApiKey">Save Key</button>
+                <p class="count-hint" id="countHint" style="display:none;"></p>
             </div>
         </aside>
 
         <!-- Main Content -->
         <main class="main-content">
+
+            <!-- Prompt Assistant -->
+            <div class="assistant-panel collapsible" id="promptAssistant">
+                <div class="assistant-panel-header" id="promptAssistantHeader">
+                    <span>✨ Prompt Assistant</span>
+                    <span class="collapsible-arrow">▾</span>
+                </div>
+                <div class="assistant-panel-body" id="promptAssistantBody" style="display:none;">
+                    <div class="assistant-row">
+                        <div class="assistant-left">
+                            <p class="assistant-hint">Describe your idea. AI generates an optimized prompt for the current image model.</p>
+                            <textarea id="assistantIdea" placeholder="E.g.: A landing page hero for a SaaS product, modern, clean, blue gradient background..." rows="3" class="text-input"></textarea>
+                            <div class="assistant-model-row">
+                                <span class="assistant-label">Assistant LLM:</span>
+                                <select id="assistantModel" class="assistant-model-select">
+                                    <option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option>
+                                    <option value="google/gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                                </select>
+                                <button type="button" class="btn btn-secondary btn-small" id="generatePromptBtn">Generate</button>
+                            </div>
+                        </div>
+                        <div class="assistant-right" id="assistantOutput" style="display:none;">
+                            <div class="assistant-output-header">
+                                <span>Result:</span>
+                                <button class="btn btn-ghost btn-small" id="copyPromptBtn">Copy & Use ↓</button>
+                            </div>
+                            <pre id="assistantResult"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status bar -->
+            <div class="status-bar" id="statusBar" style="display:none;">
+                <span class="status-spinner"></span>
+                <span id="statusText">Generating...</span>
+            </div>
+
             <!-- Prompt Area -->
             <div class="prompt-area">
                 <div class="prompt-container">
-                    <textarea id="promptInput" placeholder="Describe the image you want to generate..."
-                        rows="3"></textarea>
+                    <textarea id="promptInput" placeholder="Describe the image you want to generate..." rows="3"></textarea>
                     <div class="prompt-actions">
                         <span class="char-count" id="charCount">0 chars</span>
-                        <button type="button" class="btn btn-primary" id="generateBtn">
-                            Generate
-                        </button>
+                        <button type="button" class="btn btn-primary" id="generateBtn">Generate</button>
                     </div>
                 </div>
             </div>
@@ -150,37 +192,32 @@
             </button>
             <img src="" alt="Full size image" id="modalImage">
             <div class="modal-actions">
-                <button class="btn btn-secondary" id="useAsReference">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                        <circle cx="12" cy="10" r="3"></circle>
-                    </svg>
-                    Use as Reference
-                </button>
-                <button class="btn btn-secondary" id="recreateImage">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="23 4 23 10 17 10"></polyline>
-                        <polyline points="1 20 1 14 7 14"></polyline>
-                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                    </svg>
-                    Recreate
-                </button>
-                <button class="btn btn-secondary" id="downloadImage">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                    </svg>
-                    Download
-                </button>
+                <button class="btn btn-secondary" id="useAsReference">Use as Reference</button>
+                <button class="btn btn-secondary" id="recreateImage">Recreate</button>
+                <button class="btn btn-secondary" id="downloadImage">Download</button>
             </div>
-            <div class="modal-metadata" id="modalMetadata">
-                <!-- Metadata will be injected here -->
-            </div>
+            <div class="modal-metadata" id="modalMetadata"></div>
         </div>
     </div>
 
-    <script src="src/app.js"></script>
-</body>
+    <!-- Balance Modal -->
+    <div class="modal" id="balanceModal">
+        <div class="modal-overlay" id="balanceModalOverlay"></div>
+        <div class="modal-content balance-modal-content">
+            <button class="modal-close" id="balanceModalClose" onclick="document.getElementById('balanceModal').classList.remove('active')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+            <h3>OpenRouter Balance</h3>
+            <div id="balanceDetails"><p>Loading...</p></div>
+            <button class="btn btn-secondary" id="refreshBalance">Refresh</button>
+        </div>
+    </div>
 
+    <script src="config.js"></script>
+    <script src="src/models.js?v=20260626"></script>
+    <script src="src/app.js?v=20260626"></script>
+</body>
 </html>

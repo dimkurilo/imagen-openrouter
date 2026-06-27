@@ -83,6 +83,38 @@ body {
     text-align: center;
     padding-bottom: 20px;
     border-bottom: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.balance-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+    user-select: none;
+}
+.balance-badge:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-secondary);
+}
+.balance-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+.balance-amount {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--success);
 }
 
 .logo {
@@ -413,6 +445,23 @@ body {
 .number-input::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
+}
+
+/* Disabled state for the +/- buttons + input when a model only supports 1 image
+   (Gemini/Flux) — signals an intentional limit, not a broken control. */
+.btn-number:disabled,
+.number-input:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* Inline hint shown under Number of Images when the model is single-image only. */
+.count-hint {
+    margin: 6px 0 0;
+    font-size: 0.75rem;
+    color: var(--text-muted, #888);
+    line-height: 1.3;
 }
 
 .number-input:focus {
@@ -1075,4 +1124,201 @@ body {
     .gallery {
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     }
+}
+
+/* ===== Balance Modal ===== */
+.balance-modal-content {
+    max-width: 500px !important;
+    min-width: 360px;
+    text-align: left;
+}
+.balance-modal-content h3 {
+    font-size: 1.1rem;
+    margin: 0;
+    padding-right: 44px;
+    color: var(--text-primary);
+}
+#balanceDetails p {
+    margin: 6px 0;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+#balanceDetails strong {
+    color: var(--text-primary);
+}
+
+/* ===== Cost tag on image cards ===== */
+.cost-tag {
+    color: var(--success) !important;
+    font-weight: 600;
+}
+
+/* ===== Toggle all models label ===== */
+.toggle-all-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 8px;
+    cursor: pointer;
+}
+.toggle-all-label input[type="checkbox"] {
+    accent-color: var(--accent-primary);
+}
+
+/* ===== Price Info ===== */
+#priceInfo {
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-sm);
+    padding: 10px 12px;
+}
+#priceInfo h3 {
+    font-size: 0.85rem;
+    margin: 0 0 6px 0;
+    color: var(--text-secondary);
+}
+.price-rate {
+    font-size: 0.8rem;
+    color: var(--success);
+    margin: 2px 0;
+}
+.price-estimate {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin: 2px 0;
+}
+
+/* ===== Prompt Assistant (main content panel) ===== */
+.assistant-panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+.assistant-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    transition: background var(--transition-fast);
+}
+.assistant-panel-header:hover {
+    background: var(--bg-hover);
+}
+.assistant-panel-body {
+    padding: 16px 20px;
+}
+.assistant-row {
+    display: flex;
+    gap: 20px;
+}
+.assistant-left {
+    flex: 1;
+    min-width: 0;
+}
+.assistant-right {
+    flex: 1;
+    min-width: 0;
+}
+.assistant-right pre {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: 12px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 180px;
+    overflow-y: auto;
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    line-height: 1.5;
+}
+.assistant-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: 0 0 10px 0;
+    line-height: 1.4;
+}
+.assistant-model-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.assistant-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.assistant-model-select {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: 6px 8px;
+    font-size: 0.8rem;
+    font-family: inherit;
+}
+.assistant-output-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.btn-small {
+    padding: 4px 10px !important;
+    font-size: 0.75rem !important;
+}
+#generatePromptBtn {
+    flex-shrink: 0;
+}
+#generatePromptBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ===== Status Bar ===== */
+.status-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    margin-bottom: 12px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.status-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ===== Collapsible arrow (shared) ===== */
+.collapsible-arrow {
+    transition: transform 0.2s;
+    font-size: 0.8rem;
+}
+.collapsible.open .collapsible-arrow {
+    transform: rotate(180deg);
 }

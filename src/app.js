@@ -125,16 +125,19 @@ const ImagenDB = {
 
 // ===== State Management =====
 const state = {
-    apiKey: localStorage.getItem('imagen_api_key') || '',
-    selectedModel: localStorage.getItem('imagen_model') || 'google/gemini-2.5-flash-image',
-    imageSize: localStorage.getItem('imagen_size') || '1024x1024',
-    imageQuality: localStorage.getItem('imagen_quality') || '1K',
+    apiKey: window.OPENROUTER_API_KEY || '',
+    selectedModel: localStorage.getItem('imagen_model') || 'google/gemini-3.1-flash-image',
+    resolution: localStorage.getItem('imagen_resolution') || '1K',
+    quality: localStorage.getItem('imagen_quality') || 'medium',
+    background: localStorage.getItem('imagen_background') || 'opaque',
     aspectRatio: localStorage.getItem('imagen_aspect_ratio') || '1:1',
     imageCount: parseInt(localStorage.getItem('imagen_count')) || 1,
-    references: [], // Dynamic array - unlimited references
-    images: [], // Will be loaded from IndexedDB
+    references: [],
+    images: [],
     currentImage: null,
-    pendingBatches: [] // Track pending generation batches { id, prompt, count, completed, failed }
+    pendingBatches: [],
+    allModels: [],
+    showAllModels: false,
 };
 
 // ===== Model Configurations =====
@@ -183,6 +186,20 @@ const MODEL_CONFIGS = {
     },
     'openai/gpt-5-image-mini': {
         name: 'GPT-5 Image Mini',
+        supportsImageSize: false,
+        supportsAspectRatio: true,
+        supportsImageInput: true,
+        maxReferences: 1
+    },
+    'openai/gpt-image-2': {
+        name: 'GPT Image 2',
+        supportsImageSize: false,
+        supportsAspectRatio: true,
+        supportsImageInput: true,
+        maxReferences: 1
+    },
+    'openai/gpt-image-1': {
+        name: 'GPT Image 1',
         supportsImageSize: false,
         supportsAspectRatio: true,
         supportsImageInput: true,
@@ -253,9 +270,11 @@ const elements = {
     modelSelectTrigger: document.getElementById('modelSelectTrigger'),
     modelSelectValue: document.getElementById('modelSelectValue'),
     modelSelectOptions: document.getElementById('modelSelectOptions'),
-    geminiOptions: document.getElementById('geminiOptions'),
-    apiKey: document.getElementById('apiKey'),
-    saveApiKey: document.getElementById('saveApiKey'),
+    resolutionSection: document.getElementById('resolutionSection'),
+    qualitySection: document.getElementById('qualitySection'),
+    backgroundSection: document.getElementById('backgroundSection'),
+    aspectRatioSection: document.getElementById('aspectRatioSection'),
+    imageCountSection: document.getElementById('imageCountSection'),
     imageCount: document.getElementById('imageCount'),
     decreaseCount: document.getElementById('decreaseCount'),
     increaseCount: document.getElementById('increaseCount'),
@@ -270,6 +289,10 @@ const elements = {
     galleryHeader: document.getElementById('galleryHeader'),
     clearGallery: document.getElementById('clearGallery'),
 
+    // Status
+    statusBar: document.getElementById('statusBar'),
+    statusText: document.getElementById('statusText'),
+
     // Modal
     imageModal: document.getElementById('imageModal'),
     modalOverlay: document.getElementById('modalOverlay'),
@@ -278,18 +301,47 @@ const elements = {
     modalMetadata: document.getElementById('modalMetadata'),
     useAsReference: document.getElementById('useAsReference'),
     recreateImage: document.getElementById('recreateImage'),
-    downloadImage: document.getElementById('downloadImage')
+    downloadImage: document.getElementById('downloadImage'),
+
+    // Balance
+    balanceBadge: document.getElementById('balanceBadge'),
+    balanceAmount: document.getElementById('balanceAmount'),
+    balanceModal: document.getElementById('balanceModal'),
+    balanceModalOverlay: document.getElementById('balanceModalOverlay'),
+    balanceModalClose: document.getElementById('balanceModalClose'),
+    balanceDetails: document.getElementById('balanceDetails'),
+    refreshBalance: document.getElementById('refreshBalance'),
+
+    // Price info
+    priceInfo: document.getElementById('priceInfo'),
+    priceRate: document.getElementById('priceRate'),
+    priceEstimate: document.getElementById('priceEstimate'),
+
+    // Prompt assistant
+    promptAssistantHeader: document.getElementById('promptAssistantHeader'),
+    promptAssistantBody: document.getElementById('promptAssistantBody'),
+    assistantIdea: document.getElementById('assistantIdea'),
+    assistantModel: document.getElementById('assistantModel'),
+    generatePromptBtn: document.getElementById('generatePromptBtn'),
+    assistantOutput: document.getElementById('assistantOutput'),
+    assistantResult: document.getElementById('assistantResult'),
+    copyPromptBtn: document.getElementById('copyPromptBtn'),
 };
 
 // ===== Initialization =====
 async function init() {
     appLog('[Imagen] init() started');
 
-    // Load saved API key
-    if (state.apiKey) {
-        elements.apiKey.value = state.apiKey;
-        appLog('[Imagen] API key restored from localStorage');
+    // Load image models from API
+    try {
+        state.allModels = await ImageModels.fetchModels();
+        appLog('[Imagen] Models loaded:', state.allModels.length);
+    } catch (e) {
+        appError('[Imagen] Failed to load models:', e);
     }
+
+    // Render model selector from loaded models
+    renderModelSelector();
 
     // Render reference slots
     renderReferenceSlots();
@@ -297,31 +349,45 @@ async function init() {
 
     // Restore saved model selection
     if (state.selectedModel) {
-        // Check if the saved model value is still valid
-        const savedOption = document.querySelector(`.custom-select-option[data-value="${state.selectedModel}"]`);
-        if (savedOption) {
+        const opt = document.querySelector(`.custom-select-option[data-value="${state.selectedModel}"]`);
+        if (opt) {
             document.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
-            savedOption.classList.add('selected');
-            elements.modelSelectValue.textContent = savedOption.textContent;
+            opt.classList.add('selected');
+            elements.modelSelectValue.textContent = opt.textContent;
             appLog('[Imagen] Model restored:', state.selectedModel);
         } else {
-            // Backward compat: saved model value is no longer in dropdown, reset to default
-            appWarn('[Imagen] Saved model not found in dropdown, resetting to default');
-            state.selectedModel = 'google/gemini-2.5-flash-image';
+            appWarn('[Imagen] Saved model not found, resetting to default');
+            state.selectedModel = 'google/gemini-3.1-flash-image';
             localStorage.setItem('imagen_model', state.selectedModel);
-            const defaultOption = document.querySelector(`.custom-select-option[data-value="${state.selectedModel}"]`);
-            if (defaultOption) {
+            const defaultOpt = document.querySelector(`.custom-select-option[data-value="${state.selectedModel}"]`);
+            if (defaultOpt) {
                 document.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
-                defaultOption.classList.add('selected');
-                elements.modelSelectValue.textContent = defaultOption.textContent;
+                defaultOpt.classList.add('selected');
+                elements.modelSelectValue.textContent = defaultOpt.textContent;
             }
         }
     }
 
-    // Restore saved image quality/size
-    document.querySelectorAll('.btn-toggle').forEach(btn => {
+    // Restore saved resolution (Gemini)
+    document.querySelectorAll('#resolutionSection .btn-toggle').forEach(btn => {
         btn.classList.remove('active');
-        if (btn.dataset.quality === state.imageQuality) {
+        if (btn.dataset.resolution === state.resolution) {
+            btn.classList.add('active');
+        }
+    });
+
+    // Restore saved quality
+    document.querySelectorAll('#qualitySection .btn-toggle').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.quality === state.quality) {
+            btn.classList.add('active');
+        }
+    });
+
+    // Restore saved background
+    document.querySelectorAll('#backgroundSection .btn-toggle').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.background === state.background) {
             btn.classList.add('active');
         }
     });
@@ -356,12 +422,327 @@ async function init() {
     setupEventListeners();
     appLog('[Imagen] Event listeners attached');
 
-    // Initialize UI state
-    updateGeminiOptionsVisibility();
+    // Initialize UI state — call BEFORE setupEventListeners too so controls reflect
+    // the saved model even if a future handler-registration error aborts setup.
+    // Called again here (after setup) and on a timeout as a belt-and-suspenders guard.
+    updateModelControls();
+    setTimeout(() => updateModelControls(), 50);
     appLog('[Imagen] init() complete');
+
+    // Balance: show clickable badge, fetch only on demand
+    if (elements.balanceAmount) {
+        elements.balanceAmount.textContent = 'Click';
+    }
 }
 
-// ===== Event Listeners =====
+// ===== Balance =====
+const BalanceState = {
+    remaining: null,
+    credits: null,
+    key: null,
+    error: null,
+    loading: false,
+    fetched: false,
+};
+
+/** fetch with timeout — aborts after `ms` milliseconds */
+function fetchWithTimeout(url, options, ms = 8000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+async function fetchBalance() {
+    BalanceState.loading = true;
+    console.log('[Balance] fetchBalance() started, apiKey present:', !!state.apiKey);
+    let creditsData = null;
+    let keyData = null;
+    let remaining = null;
+    let errorMsg = null;
+
+    if (!state.apiKey) {
+        errorMsg = 'No API key configured. Check config.js.';
+        console.log('[Balance] No API key — skipping fetch');
+    } else {
+        try {
+            console.log('[Balance] Fetching credits...');
+            const creditsResp = await fetchWithTimeout('https://openrouter.ai/api/v1/credits', {
+                headers: {
+                    'Authorization': `Bearer ${state.apiKey}`,
+                    'HTTP-Referer': window.location.origin,
+                }
+            });
+            console.log('[Balance] Credits response:', creditsResp.status);
+            if (creditsResp.ok) {
+                creditsData = await creditsResp.json();
+                console.log('[Balance] Credits data:', creditsData?.data?.total_credits);
+            } else if (creditsResp.status === 401) {
+                errorMsg = 'Invalid API key (401). Check config.js.';
+            } else {
+                errorMsg = `Credits API error: ${creditsResp.status}`;
+            }
+        } catch (e) {
+            console.error('[Balance] Credits fetch failed:', e.message);
+            errorMsg = e.name === 'AbortError' ? 'Request timed out (8s). Check network.' : `Network error: ${e.message}`;
+        }
+
+        if (!errorMsg) {
+            try {
+                console.log('[Balance] Fetching key info...');
+                const keyResp = await fetchWithTimeout('https://openrouter.ai/api/v1/key', {
+                    headers: {
+                        'Authorization': `Bearer ${state.apiKey}`,
+                        'HTTP-Referer': window.location.origin,
+                    }
+                });
+                console.log('[Balance] Key response:', keyResp.status);
+                if (keyResp.ok) {
+                    keyData = await keyResp.json();
+                }
+            } catch (e) {
+                console.warn('[Balance] Key fetch failed:', e.message);
+            }
+        }
+
+        if (creditsData?.data) {
+            const total = creditsData.data.total_credits || 0;
+            const usage = creditsData.data.total_usage || 0;
+            remaining = total - usage;
+            console.log('[Balance] Remaining:', remaining);
+        }
+    }
+
+    // Store in module-level state
+    BalanceState.remaining = remaining;
+    BalanceState.credits = creditsData?.data || null;
+    BalanceState.key = keyData?.data || null;
+    BalanceState.error = errorMsg;
+    BalanceState.loading = false;
+    BalanceState.fetched = true;
+    console.log('[Balance] Done — remaining:', remaining, 'error:', errorMsg);
+
+    // Update badge
+    if (elements.balanceAmount) {
+        if (remaining !== null) {
+            elements.balanceAmount.textContent = `$${remaining.toFixed(2)}`;
+            elements.balanceAmount.style.color = '';
+        } else if (errorMsg) {
+            elements.balanceAmount.textContent = '⚠️';
+            elements.balanceAmount.style.color = 'var(--warning)';
+        } else {
+            elements.balanceAmount.textContent = '--';
+        }
+    }
+}
+
+function openBalanceModal() {
+    if (!elements.balanceModal) return;
+
+    let html = '';
+
+    if (BalanceState.loading) {
+        html = '<p>⏳ Fetching balance data...</p>';
+    } else if (!BalanceState.fetched) {
+        html = '<p>Click <strong>Refresh</strong> to load balance data.</p>';
+    } else if (BalanceState.error) {
+        html = `<p style="color:var(--warning)">⚠️ ${escapeHtml(BalanceState.error)}</p>`;
+        if (BalanceState.remaining !== null) {
+            html += `<p><strong>Remaining:</strong> $${BalanceState.remaining.toFixed(4)}</p>`;
+        }
+    } else {
+        if (BalanceState.remaining !== null) {
+            html += `<p><strong>Remaining:</strong> $${BalanceState.remaining.toFixed(4)}</p>`;
+        }
+        if (BalanceState.credits) {
+            html += `<p><strong>Total Credits:</strong> $${Number(BalanceState.credits.total_credits || 0).toFixed(2)}</p>`;
+            html += `<p><strong>Total Usage:</strong> $${Number(BalanceState.credits.total_usage || 0).toFixed(4)}</p>`;
+        }
+        if (BalanceState.key) {
+            html += `<p><strong>Limit Remaining:</strong> $${Number(BalanceState.key.limit_remaining || 0).toFixed(4)}</p>`;
+            html += `<p><strong>Monthly Usage:</strong> $${Number(BalanceState.key.usage_monthly || 0).toFixed(4)}</p>`;
+            html += `<p><strong>Free Tier:</strong> ${BalanceState.key.is_free_tier ? 'Yes' : 'No'}</p>`;
+        }
+        if (!html) {
+            html = '<p>No balance data available.</p>';
+        }
+    }
+
+    if (elements.balanceDetails) {
+        elements.balanceDetails.innerHTML = html;
+    }
+    elements.balanceModal.classList.add('active');
+}
+
+function closeBalanceModal() {
+    if (!elements.balanceModal) return;
+    elements.balanceModal.classList.remove('active');
+}
+
+// ===== Model Selector Rendering =====
+function renderModelSelector() {
+    const container = elements.modelSelectOptions;
+    container.innerHTML = '';
+
+    const models = state.allModels.length > 0 ? state.allModels : [];
+    let visibleModels;
+
+    if (models.length === 0) {
+        // Fallback: no API data yet — use MODEL_CONFIGS. Show ALL (not just shortlist).
+        const fallback = Object.keys(MODEL_CONFIGS).map(id => ({ id, name: MODEL_CONFIGS[id].name }));
+        visibleModels = fallback;
+        // Show toggle to indicate these are cached/local models
+        const label = document.getElementById('showAllModelsLabel');
+        const checkbox = document.getElementById('showAllModels');
+        if (label && checkbox) {
+            label.style.display = 'block';
+            label.querySelector('span') && (label.lastChild.textContent = ' Show all (cached)');
+            checkbox.checked = true;
+            checkbox.disabled = true;
+        }
+    } else {
+        const allModelsSorted = [...models].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+        const shortlist = ImageModels.getShortlist(models);
+        visibleModels = state.showAllModels ? allModelsSorted : shortlist;
+        // Show toggle only if there are more models than shortlist
+        const label = document.getElementById('showAllModelsLabel');
+        const checkbox = document.getElementById('showAllModels');
+        if (label && checkbox) {
+            if (models.length > ImageModels.SHORTLIST.length) {
+                label.style.display = 'block';
+                checkbox.checked = state.showAllModels;
+                checkbox.disabled = false;
+            } else {
+                label.style.display = 'none';
+            }
+        }
+    }
+
+    for (const model of visibleModels) {
+        const opt = document.createElement('div');
+        opt.className = 'custom-select-option';
+        opt.dataset.value = model.id;
+        if (model.id === state.selectedModel) {
+            opt.classList.add('selected');
+            elements.modelSelectValue.textContent = model.name || model.id;
+        }
+        opt.textContent = model.name || model.id;
+        container.appendChild(opt);
+    }
+}
+
+// ===== Pricing (dynamic from API model data) =====
+// Three billing UNITS on OpenRouter /images (verified via /endpoints scan 2026-06-26):
+//   token      — GPT/Gemini/MAI: cost_usd × image_tokens
+//   megapixel  — Flux.2-*: cost_usd × output_MP (nominal ~1.0 MP for 1:1)
+//   image      — Recraft/Seedream/Riverflow/Grok: flat cost_usd per image
+// Gemini resolution→token map is EMPIRICALLY calibrated from real usage.cost:
+//   1K → 1120 tok ($0.0672), 2K → 1680 tok ($0.1008). Ratio is ~1.5× per step,
+//   NOT 4× (pixel-area scaling overestimates). 512/4K extrapolated on the 1.5× ratio.
+const GEMINI_RES_TOKENS = { '512': 750, '1K': 1120, '2K': 1680, '4K': 2520 };
+const GPT_QUAL_TOKENS   = { 'auto': 650, 'low': 231, 'medium': 650, 'high': 1333 };
+// Model-specific quality→token overrides. Newer models (gpt-5-image, gpt-5.4-image-2)
+// consume far more tokens per image than the original gpt-image-1/2 at the same quality.
+// Keyed by model-ID prefix (startsWith). Source: actual usage from IndexedDB + OpenRouter
+// credit logs (2026-06-27: gpt-5-image low=408, high=6240 tok; gpt-image-2 low=229 tok).
+const MODEL_QUAL_TOKENS = [
+    { match: 'openai/gpt-5', tokens: { 'auto': 1600, 'low': 408, 'medium': 1600, 'high': 6240 } },
+];
+// Nominal output megapixels for Flux (no resolution control; ~1MP base, +slight for wide)
+const FLUX_MP = { '1:1': 1.0, '16:9': 1.4, '9:16': 1.4, '4:3': 1.2, '3:4': 1.2, '3:2': 1.3 };
+
+function updatePriceInfo() {
+    if (!elements.priceInfo || !elements.priceRate) return;
+
+    const modelId = state.selectedModel;
+    const model = state.allModels.find(m => m.id === modelId);
+
+    if (!model) {
+        elements.priceRate.textContent = 'Loading model data...';
+        elements.priceEstimate.textContent = '';
+        return;
+    }
+
+    // Sync render with the fallback pricing (instant), then refine from /endpoints.
+    renderPrice(ImageModels.getFallbackPricing(modelId));
+
+    ImageModels.fetchModelPricing(modelId).then(pricing => {
+        // Only re-render if still on the same model (avoid clobbering on fast switches).
+        if (state.selectedModel === modelId) renderPrice(pricing);
+    });
+}
+
+/** Render the pricing block given a pricing object {unit, cost_usd} (may be null). */
+function renderPrice(pricing) {
+    const modelId = state.selectedModel;
+    const model = state.allModels.find(m => m.id === modelId);
+    const name = model?.name || modelId;
+    const n = state.imageCount;
+
+    const unit = pricing?.unit;
+    const cost = pricing?.cost_usd;
+    const isGemini = modelId.includes('gemini');
+    const isGptLike = modelId.includes('gpt') || modelId.includes('openai') || modelId.includes('mai');
+
+    if (!pricing || typeof cost !== 'number') {
+        elements.priceRate.textContent = name;
+        elements.priceEstimate.textContent = 'check openrouter.ai for pricing';
+        return;
+    }
+
+    let rateText, perImg, settingNote;
+
+    if (unit === 'token') {
+        const ratePer1M = cost * 1e6;
+        if (isGemini) {
+            const estTokens = GEMINI_RES_TOKENS[state.resolution] ?? 1167;
+            perImg = cost * estTokens;
+            settingNote = `@${state.resolution}`;
+        } else if (isGptLike) {
+            const override = MODEL_QUAL_TOKENS.find(o => modelId.startsWith(o.match));
+            const qualTokens = override?.tokens ?? GPT_QUAL_TOKENS;
+            const estTokens = qualTokens[state.quality] ?? 650;
+            perImg = cost * estTokens;
+            settingNote = `quality: ${state.quality}`;
+        } else {
+            perImg = cost * 650;
+            settingNote = 'auto';
+        }
+        rateText = `${name} · $${ratePer1M}/1M img-tok`;
+    } else if (unit === 'image') {
+        perImg = cost; // flat per image
+        settingNote = 'per image';
+        rateText = `${name} · $${cost}/image`;
+    } else if (unit === 'megapixel') {
+        const mp = FLUX_MP[state.aspectRatio] ?? 1.0;
+        perImg = cost * mp;
+        settingNote = `~${mp}MP`;
+        rateText = `${name} · $${cost}/MP`;
+    } else {
+        rateText = name;
+        perImg = null;
+    }
+
+    elements.priceRate.textContent = rateText;
+
+    if (perImg == null) {
+        elements.priceEstimate.textContent = 'check openrouter.ai for pricing';
+    } else {
+        elements.priceEstimate.textContent = (n > 1)
+            ? `${settingNote} · ~$${perImg.toFixed(4)}/img × ${n} = ~$${(perImg * n).toFixed(4)} (estimate)`
+            : `${settingNote} · ~$${perImg.toFixed(4)}/img (estimate)`;
+    }
+}
+
+// ===== Status Bar =====
+function showStatus(msg) {
+    if (!elements.statusBar || !elements.statusText) return;
+    elements.statusBar.style.display = 'flex';
+    elements.statusText.textContent = msg;
+}
+function hideStatus() {
+    if (!elements.statusBar) return;
+    elements.statusBar.style.display = 'none';
+}
 function setupEventListeners() {
     appLog('[Imagen] setupEventListeners()');
 
@@ -377,17 +758,17 @@ function setupEventListeners() {
         elements.modelSelectContainer.classList.toggle('open');
     });
 
-    // Custom dropdown - option selection
-    document.querySelectorAll('.custom-select-option').forEach(option => {
-        option.addEventListener('click', () => {
-            state.selectedModel = option.dataset.value;
-            localStorage.setItem('imagen_model', state.selectedModel);
-            elements.modelSelectValue.textContent = option.textContent;
-            document.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
-            option.classList.add('selected');
-            elements.modelSelectContainer.classList.remove('open');
-            updateGeminiOptionsVisibility();
-        });
+    // Model option selection — delegated on container
+    elements.modelSelectOptions.addEventListener('click', (e) => {
+        const option = e.target.closest('.custom-select-option');
+        if (!option) return;
+        state.selectedModel = option.dataset.value;
+        localStorage.setItem('imagen_model', state.selectedModel);
+        elements.modelSelectValue.textContent = option.textContent;
+        document.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+        option.classList.add('selected');
+        elements.modelSelectContainer.classList.remove('open');
+        updateGeminiOptionsVisibility();
     });
 
     // Close dropdown when clicking outside
@@ -397,15 +778,44 @@ function setupEventListeners() {
         }
     });
 
-    // Size toggle buttons
-    document.querySelectorAll('.btn-toggle').forEach(btn => {
+    // Show all models toggle
+    const showAllCheckbox = document.getElementById('showAllModels');
+    if (showAllCheckbox) {
+        showAllCheckbox.addEventListener('change', () => {
+            state.showAllModels = showAllCheckbox.checked;
+            renderModelSelector();
+        });
+    }
+
+    // Resolution buttons (Gemini)
+    document.querySelectorAll('#resolutionSection .btn-toggle').forEach(btn => {
         btn.addEventListener('click', () => {
-            document.querySelectorAll('.btn-toggle').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('#resolutionSection .btn-toggle').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            state.imageSize = btn.dataset.size;
-            state.imageQuality = btn.dataset.quality;
-            localStorage.setItem('imagen_size', state.imageSize);
-            localStorage.setItem('imagen_quality', state.imageQuality);
+            state.resolution = btn.dataset.resolution;
+            localStorage.setItem('imagen_resolution', state.resolution);
+            updatePriceInfo();
+        });
+    });
+
+    // Quality buttons (GPT)
+    document.querySelectorAll('#qualitySection .btn-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#qualitySection .btn-toggle').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.quality = btn.dataset.quality;
+            localStorage.setItem('imagen_quality', state.quality);
+            updatePriceInfo();
+        });
+    });
+
+    // Background buttons (GPT)
+    document.querySelectorAll('#backgroundSection .btn-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#backgroundSection .btn-toggle').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.background = btn.dataset.background;
+            localStorage.setItem('imagen_background', state.background);
         });
     });
 
@@ -426,16 +836,19 @@ function setupEventListeners() {
                 state.imageCount--;
                 elements.imageCount.value = state.imageCount;
                 localStorage.setItem('imagen_count', state.imageCount);
+                updatePriceInfo();
             }
         });
     }
 
     if (elements.increaseCount) {
         elements.increaseCount.addEventListener('click', () => {
-            if (state.imageCount < 8) {
+            const maxN = getMaxImageCount(state.selectedModel);
+            if (state.imageCount < maxN) {
                 state.imageCount++;
                 elements.imageCount.value = state.imageCount;
                 localStorage.setItem('imagen_count', state.imageCount);
+                updatePriceInfo();
             }
         });
     }
@@ -443,23 +856,15 @@ function setupEventListeners() {
     if (elements.imageCount) {
         elements.imageCount.addEventListener('change', (e) => {
             let val = parseInt(e.target.value);
+            const maxN = getMaxImageCount(state.selectedModel);
             if (isNaN(val) || val < 1) val = 1;
-            if (val > 8) val = 8;
+            if (val > maxN) val = maxN;
             state.imageCount = val;
             elements.imageCount.value = val;
             localStorage.setItem('imagen_count', state.imageCount);
+            updatePriceInfo();
         });
     }
-
-    // API Key
-    elements.saveApiKey.addEventListener('click', () => {
-        const val = elements.apiKey.value.trim();
-        appLog('[Imagen] Save Key clicked, value length:', val.length);
-        state.apiKey = val;
-        localStorage.setItem('imagen_api_key', state.apiKey);
-        appLog('[Imagen] API key saved to localStorage, length:', state.apiKey.length);
-        showToast('API key saved!', 'success');
-    });
 
     // Reference images are handled by renderReferenceSlots()
     elements.clearReferences.addEventListener('click', clearAllReferences);
@@ -498,9 +903,192 @@ function setupEventListeners() {
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeModal();
+        if (e.key === 'Escape') {
+            closeModal();
+            closeBalanceModal();
+        }
         if (e.key === 'Enter' && e.ctrlKey) generateImages();
     });
+
+    // Balance badge and modal
+    if (elements.balanceBadge) {
+        elements.balanceBadge.addEventListener('click', async () => {
+            if (BalanceState.loading) return;
+            if (elements.balanceAmount) elements.balanceAmount.textContent = '...';
+            await fetchBalance();
+            openBalanceModal();
+        });
+    }
+    if (elements.balanceModalOverlay) {
+        elements.balanceModalOverlay.addEventListener('click', closeBalanceModal);
+    }
+    if (elements.balanceModalClose) {
+        elements.balanceModalClose.addEventListener('click', closeBalanceModal);
+    } else {
+        // Fallback: element not found by ID at load time — try querySelector
+        const btn = document.querySelector('#balanceModal .modal-close');
+        if (btn) btn.addEventListener('click', closeBalanceModal);
+    }
+    if (elements.refreshBalance) {
+        elements.refreshBalance.addEventListener('click', async () => {
+            try {
+                elements.refreshBalance.disabled = true;
+                elements.refreshBalance.textContent = 'Refreshing...';
+                await fetchBalance();
+            } catch (e) {
+                console.error('[Balance] Refresh error:', e);
+            } finally {
+                if (elements.refreshBalance) {
+                    elements.refreshBalance.disabled = false;
+                    elements.refreshBalance.textContent = 'Refresh';
+                }
+            }
+            openBalanceModal();
+        });
+    }
+
+    // Prompt Assistant — collapsible toggle
+    if (elements.promptAssistantHeader) {
+        elements.promptAssistantHeader.addEventListener('click', () => {
+            const body = elements.promptAssistantBody;
+            const container = document.getElementById('promptAssistant');
+            const isOpen = body.style.display !== 'none';
+            body.style.display = isOpen ? 'none' : 'block';
+            container.classList.toggle('open', !isOpen);
+        });
+    }
+
+    // Prompt Assistant — generate
+    if (elements.generatePromptBtn) {
+        elements.generatePromptBtn.addEventListener('click', async () => {
+            const idea = elements.assistantIdea?.value.trim();
+            if (!idea) {
+                showToast('Describe your idea first', 'warning');
+                return;
+            }
+            if (!state.apiKey) {
+                showToast('No API key configured', 'error');
+                return;
+            }
+
+            elements.generatePromptBtn.disabled = true;
+            elements.generatePromptBtn.textContent = 'Generating...';
+            elements.assistantOutput.style.display = 'none';
+            showStatus('Generating prompt with AI assistant...');
+
+            try {
+                const imageModel = state.selectedModel;
+                const imageModelName = state.allModels.find(m => m.id === imageModel)?.name || imageModel;
+                const assistantModel = elements.assistantModel?.value || 'google/gemini-2.5-flash';
+
+                // Reference images attached to the assistant request (vision):
+                // the LLM sees them and crafts a prompt that matches/uses them.
+                const refs = (state.references || []).filter(r => typeof r === 'string' && r.startsWith('data:image'));
+                const hasRefs = refs.length > 0;
+
+                let styleGuide = '';
+                if (imageModel.includes('gpt') || imageModel.includes('openai')) {
+                    styleGuide = 'Output a single prose paragraph describing the image. Use natural language. Describe foreground, midground, background for complex scenes. Add "do not include text in the image" at the end if the user did not request text.';
+                } else if (imageModel.includes('gemini')) {
+                    styleGuide = 'Output a detailed prose description. Be explicit about every visual element. Describe subject, setting, lighting, mood, composition, and color palette.';
+                } else if (imageModel.includes('flux')) {
+                    styleGuide = 'Output comma-separated descriptors: subject, action, setting, style, mood, lighting, composition, colors.';
+                } else if (imageModel.includes('seedream')) {
+                    styleGuide = 'Output with artistic style specification first, then scene description. Specify art style explicitly (anime, cinematic, painterly, etc).';
+                } else {
+                    styleGuide = 'Output a detailed image generation prompt. Include: subject, action/pose, setting, style, mood, lighting, color palette, and composition.';
+                }
+
+                const refInstruction = hasRefs
+                    ? `\n\nREFERENCE IMAGES: ${refs.length} reference image(s) are attached. Carefully study them. If the task is editing/extending the reference, describe how to preserve its subject, composition and style. If the reference is for inspiration, capture its mood, palette and visual language in the prompt.`
+                    : '';
+
+                const systemPrompt = `You are an expert prompt engineer for AI image generation. The target image model is "${imageModelName}" (${imageModel}).
+
+${styleGuide}
+${refInstruction}
+
+Rules:
+- Output ONLY the final prompt, nothing else — no explanations, no prefixes, no markdown.
+- Make it specific and visual. Replace vague words with concrete imagery.
+- If the user mentions a style (photo, illustration, 3D, etc.), reinforce it.
+- Keep the prompt between 30-200 words — concise but rich in visual detail.
+- If the user mentions colors, lighting, or mood — amplify those elements.`;
+
+                // Build user message content: text + image_url parts (vision) when refs exist
+                let userContent;
+                if (hasRefs) {
+                    userContent = [{ type: 'text', text: idea }];
+                    for (const r of refs) {
+                        userContent.push({ type: 'image_url', image_url: { url: r } });
+                    }
+                } else {
+                    userContent = idea;
+                }
+
+                const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${state.apiKey}`,
+                        'Content-Type': 'application/json',
+                        'HTTP-Referer': window.location.origin,
+                        'X-Title': 'Imagen Prompt Assistant'
+                    },
+                    body: JSON.stringify({
+                        model: assistantModel,
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            { role: 'user', content: userContent }
+                        ],
+                        temperature: 0.7,
+                        max_tokens: 500,
+                    })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error?.message || `API error: ${resp.status}`);
+                }
+
+                const data = await resp.json();
+                const generated = data.choices?.[0]?.message?.content?.trim();
+
+                if (generated) {
+                    elements.assistantResult.textContent = generated;
+                    elements.assistantOutput.style.display = 'block';
+                    // Auto-insert into the main generation prompt field
+                    elements.promptInput.value = generated;
+                    elements.charCount.textContent = `${generated.length} chars`;
+                    hideStatus();
+                    showToast(hasRefs
+                        ? 'Prompt generated from idea + reference(s), inserted below'
+                        : 'Prompt generated and inserted below', 'success');
+                } else {
+                    showToast('No prompt generated. Try again.', 'error');
+                    hideStatus();
+                }
+            } catch (e) {
+                console.error('[Assistant] Error:', e);
+                showToast(e.message || 'Failed to generate prompt', 'error');
+                hideStatus();
+            } finally {
+                elements.generatePromptBtn.disabled = false;
+                elements.generatePromptBtn.textContent = 'Generate';
+            }
+        });
+    }
+
+    // Prompt Assistant — copy to prompt
+    if (elements.copyPromptBtn) {
+        elements.copyPromptBtn.addEventListener('click', () => {
+            const text = elements.assistantResult?.textContent?.trim();
+            if (text && elements.promptInput) {
+                elements.promptInput.value = text;
+                elements.charCount.textContent = `${text.length} chars`;
+                showToast('Prompt copied! Ready to generate.', 'success');
+            }
+        });
+    }
 
     // Paste images from clipboard
     document.addEventListener('paste', handlePaste);
@@ -697,88 +1285,145 @@ async function generateImages() {
 
     if (!state.apiKey) {
         appWarn('[Imagen] Blocked: no API key');
-        showToast('Please enter your OpenRouter API key', 'error');
+        showToast('No API key configured. Check config.js', 'error');
         return;
     }
 
-    const modelConfig = MODEL_CONFIGS[state.selectedModel];
-    if (!modelConfig) {
-        showToast(`Unknown model: ${state.selectedModel}`, 'error');
-        appError('[Imagen] Unknown model:', state.selectedModel);
-        return;
-    }
     const currentReferences = state.references.length > 0 ? [...state.references] : [];
     const currentModel = state.selectedModel;
-    const currentSize = state.imageSize;
-    const currentQuality = state.imageQuality;
     const currentAspectRatio = state.aspectRatio;
     const imageCount = state.imageCount;
-    
+
     // Create a batch to track this generation request
     const batchId = Date.now() + Math.random();
     const batch = {
         id: batchId,
         prompt: prompt,
         model: currentModel,
-        modelName: modelConfig.name,
+        modelName: currentModel,
         count: imageCount,
         completed: 0,
         failed: 0
     };
     state.pendingBatches.push(batch);
-    
-    // Add loading placeholders without full re-render
-    addLoadingPlaceholders(batch, imageCount);
-    
-    showToast(`Queued ${imageCount} image(s) for generation`, 'success');
 
-    // Generate images and display each one as it completes
-    const generateAndDisplay = async (index) => {
-        try {
-            const result = await generateSingleImage(prompt, modelConfig);
-            if (result) {
-                const imageData = {
-                    id: Date.now() + index + Math.random(),
-                    url: result,
-                    prompt: prompt,
-                    model: currentModel,
-                    modelName: modelConfig.name,
-                    size: currentSize,
-                    quality: currentQuality,
-                    aspectRatio: currentAspectRatio,
-                    references: currentReferences,
-                    createdAt: new Date().toISOString()
-                };
-                state.images.unshift(imageData);
-                batch.completed++;
-                
-                // Remove one placeholder and add the new image
-                removeOnePlaceholder(batchId);
-                prependImageCard(imageData, 0);
-                
-                // Save to IndexedDB in background
-                ImagenDB.saveImage(imageData).catch(e => console.error('Failed to save to IndexedDB:', e));
-            } else {
+    // Add loading placeholders
+    addLoadingPlaceholders(batch, imageCount);
+    showToast(`Generating ${imageCount} image(s)...`, 'success');
+    showStatus(`Generating ${imageCount} image(s) with ${currentModel}...`);
+
+    try {
+        // Build /api/v1/images request body
+        const requestBody = {
+            model: currentModel,
+            prompt: prompt,
+            n: imageCount,
+        };
+
+        // Add model-specific params. Source of truth: supported_parameters ONLY.
+        // No hardcoded model-name heuristics — those send params the API doesn't
+        // accept (e.g. aspect_ratio to gemini-2.5-flash-image-preview → 400 risk)
+        // and violate the "supported_parameters is the contract" rule.
+        const modelObj = state.allModels.find(m => m.id === currentModel);
+        const params = modelObj ? ImageModels.getSupportedParams(modelObj) : [];
+
+        if (params.includes('quality')) requestBody.quality = state.quality;
+        if (params.includes('background')) requestBody.background = state.background;
+        if (params.includes('resolution')) requestBody.resolution = state.resolution;
+        if (params.includes('aspect_ratio')) requestBody.aspect_ratio = currentAspectRatio;
+        // NOTE: output_compression is intentionally NOT auto-injected. It requires
+        // output_format=jpeg|webp (OpenAI rejects output_compression without it → 400),
+        // and there is no UI control for output_format. PNG (default) is uncompressed.
+
+        // Add reference images if any
+        if (currentReferences.length > 0) {
+            requestBody.input_references = currentReferences.map(ref => ({
+                type: 'image_url',
+                image_url: { url: ref }
+            }));
+        }
+
+        appLog('[Imagen] Sending /images request:', JSON.stringify({...requestBody, input_references: requestBody.input_references ? `[${requestBody.input_references.length} refs]` : undefined}));
+
+        const response = await fetch('https://openrouter.ai/api/v1/images', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${state.apiKey}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': window.location.origin,
+                'X-Title': 'Imagen Internal Tool'
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        appLog('[Imagen] /images response status:', response.status);
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            appError('[Imagen] API error:', errorData);
+            let rawMsg = errorData.error?.message ?? errorData.error ?? errorData;
+            if (rawMsg && typeof rawMsg !== 'string') {
+                try { rawMsg = JSON.stringify(rawMsg); } catch { rawMsg = null; }
+            }
+            const errMsg = rawMsg || `API error: ${response.status}`;
+            throw new Error(errMsg);
+        }
+
+        const data = await response.json();
+        appLog('[Imagen] Received', data.data?.length || 0, 'images, cost:', data.usage?.cost);
+
+        // Process each generated image
+        const images = data.data || [];
+        for (let i = 0; i < images.length; i++) {
+            const img = images[i];
+            if (!img.b64_json) {
                 batch.failed++;
                 removeOnePlaceholder(batchId);
+                continue;
             }
-        } catch (error) {
-            console.error('Failed to generate image:', error);
-            batch.failed++;
-            removeOnePlaceholder(batchId);
-        }
-    };
 
-    // Start all generations in parallel, each will render when done
-    const promises = [];
-    for (let i = 0; i < imageCount; i++) {
-        promises.push(generateAndDisplay(i));
+            const mediaType = img.media_type || 'image/png';
+            const mimeType = mediaType.startsWith('image/') ? mediaType : 'image/png';
+            const url = `data:${mimeType};base64,${img.b64_json}`;
+
+            const imageData = {
+                id: Date.now() + i + Math.random(),
+                url: url,
+                prompt: prompt,
+                model: currentModel,
+                modelName: currentModel,
+                resolution: state.resolution,
+                quality: state.quality,
+                background: state.background,
+                aspectRatio: currentAspectRatio,
+                references: currentReferences,
+                createdAt: new Date().toISOString(),
+                usageCost: data.usage?.cost ?? null,
+                imageTokens: data.usage?.completion_tokens_details?.image_tokens ?? null,
+            };
+
+            state.images.unshift(imageData);
+            batch.completed++;
+            removeOnePlaceholder(batchId);
+            prependImageCard(imageData, 0);
+
+            // Save to IndexedDB in background
+            ImagenDB.saveImage(imageData).catch(e => console.error('Failed to save to IndexedDB:', e));
+        }
+
+        if (images.length === 0) {
+            batch.failed += imageCount;
+            for (let j = 0; j < imageCount; j++) removeOnePlaceholder(batchId);
+            throw new Error('No images in response');
+        }
+    } catch (error) {
+        console.error('Failed to generate images:', error);
+        batch.failed = imageCount - batch.completed;
+        showToast(error.message || 'Generation failed', 'error');
+        hideStatus();
     }
 
-    // Wait for all to complete to update final UI state
-    await Promise.allSettled(promises);
-
-    // Remove this batch from pending
+    // Remove batch from pending
     const batchIndex = state.pendingBatches.findIndex(b => b.id === batchId);
     if (batchIndex !== -1) {
         state.pendingBatches.splice(batchIndex, 1);
@@ -786,147 +1431,14 @@ async function generateImages() {
 
     if (batch.completed > 0) {
         showToast(`${batch.completed} image(s) generated!`, 'success');
-    } else {
-        showToast('Failed to generate images. Check console for details.', 'error');
-    }
-}
-
-async function generateSingleImage(prompt, modelConfig) {
-    appLog('[Imagen] generateSingleImage() model:', state.selectedModel);
-
-    // Build message content
-    const content = [];
-
-    // Add reference images if supported
-    if (modelConfig.supportsImageInput) {
-        state.references.forEach((ref, index) => {
-            if (ref) {
-                content.push({
-                    type: 'image_url',
-                    image_url: {
-                        url: ref,
-                        detail: 'high'
-                    }
-                });
+        hideStatus();
+        // Save to IndexedDB after all images
+        try {
+            for (const img of state.images.slice(0, batch.completed)) {
+                await ImagenDB.saveImage(img).catch(() => {});
             }
-        });
+        } catch (e) {}
     }
-
-    // Add text prompt
-    content.push({
-        type: 'text',
-        text: prompt
-    });
-
-    // Build request body
-    const requestBody = {
-        model: state.selectedModel,
-        messages: [
-            {
-                role: 'user',
-                content: content.length === 1 ? prompt : content
-            }
-        ],
-        modalities: modelConfig.modalities
-    };
-
-    // Add Gemini-specific options
-    if (modelConfig.supportsImageSize && state.selectedModel.includes('gemini')) {
-        requestBody.image_config = {
-            image_size: state.imageQuality.toLowerCase(),
-            aspect_ratio: state.aspectRatio
-        };
-    }
-
-    // Add aspect ratio for other models
-    if (modelConfig.supportsAspectRatio && !state.selectedModel.includes('gemini')) {
-        requestBody.aspect_ratio = state.aspectRatio;
-    }
-
-    appLog('[Imagen] Sending API request to OpenRouter');
-    appLog('[Imagen] Request model:', requestBody.model);
-    appLog('[Imagen] API key (first 8 chars):', state.apiKey.substring(0, 8) + '...');
-
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${state.apiKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': window.location.origin,
-            'X-Title': 'Imagen Internal Tool'
-        },
-        body: JSON.stringify(requestBody)
-    });
-
-    appLog('[Imagen] API response status:', response.status);
-
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        appError('[Imagen] API error response:', errorData);
-        throw new Error(errorData.error?.message || `API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    appLog('[Imagen] API response received, choices:', data.choices?.length);
-
-    // Extract image from response
-    // OpenRouter returns images in different formats depending on the model
-    const message = data.choices?.[0]?.message;
-
-    if (!message) {
-        throw new Error('No response from model');
-    }
-
-    // Log full response for debugging
-    console.log('API Response:', JSON.stringify(data, null, 2));
-
-    // Check for images array in message (OpenRouter SDK format)
-    // According to OpenRouter docs: message.images[].image_url.url
-    if (message.images && message.images.length > 0) {
-        const img = message.images[0];
-        // OpenRouter SDK format: { image_url: { url: "data:image/..." } }
-        if (img.image_url?.url) {
-            return img.image_url.url;
-        }
-        // Alternative formats
-        if (typeof img === 'string') {
-            if (img.startsWith('data:') || img.startsWith('http')) {
-                return img;
-            }
-            return `data:image/png;base64,${img}`;
-        }
-        if (img.url) return img.url;
-        if (img.b64_json) return `data:image/png;base64,${img.b64_json}`;
-    }
-
-    // Check for image in content parts (different models may use this format)
-    if (Array.isArray(message.content)) {
-        for (const part of message.content) {
-            // OpenAI-style image_url part
-            if (part.type === 'image_url' && part.image_url?.url) {
-                return part.image_url.url;
-            }
-            // Gemini-style inlineData part
-            if (part.inlineData?.data) {
-                const mimeType = part.inlineData.mimeType || 'image/png';
-                return `data:${mimeType};base64,${part.inlineData.data}`;
-            }
-            // Generic image part
-            if (part.type === 'image' && part.image) {
-                if (part.image.startsWith('data:')) {
-                    return part.image;
-                }
-                return `data:image/png;base64,${part.image}`;
-            }
-        }
-    }
-
-    // Check if content itself is the image data (some models return this way)
-    if (typeof message.content === 'string' && message.content.startsWith('data:image')) {
-        return message.content;
-    }
-
-    throw new Error('No image in response. Check console for full API response.');
 }
 
 // ===== Gallery =====
@@ -1029,8 +1541,9 @@ function renderGallery() {
                 <p class="image-card-prompt">${safePrompt}</p>
                 <div class="image-card-meta">
                     <span class="meta-tag">${escapeHtml(image.modelName || image.model)}</span>
-                    <span class="meta-tag">${escapeHtml(image.quality || image.size)}</span>
-                    <span class="meta-tag">${escapeHtml(image.aspectRatio)}</span>
+                    ${image.quality ? `<span class="meta-tag">${escapeHtml(image.quality)}</span>` : ''}
+                    ${image.resolution ? `<span class="meta-tag">${escapeHtml(image.resolution)}</span>` : ''}
+                    ${image.usageCost != null ? `<span class="meta-tag cost-tag">$${Number(image.usageCost).toFixed(4)}</span>` : ''}
                 </div>
             </div>
         `;
@@ -1183,8 +1696,9 @@ function createImageCardElement(image, index) {
             <p class="image-card-prompt">${safePrompt}</p>
             <div class="image-card-meta">
                 <span class="meta-tag">${escapeHtml(image.modelName || image.model)}</span>
-                <span class="meta-tag">${escapeHtml(image.quality || image.size)}</span>
-                <span class="meta-tag">${escapeHtml(image.aspectRatio)}</span>
+                ${image.quality ? `<span class="meta-tag">${escapeHtml(image.quality)}</span>` : ''}
+                ${image.resolution ? `<span class="meta-tag">${escapeHtml(image.resolution)}</span>` : ''}
+                ${image.usageCost != null ? `<span class="meta-tag cost-tag">$${Number(image.usageCost).toFixed(4)}</span>` : ''}
             </div>
         </div>
     `;
@@ -1298,13 +1812,25 @@ function recreateImageByIndex(index) {
     }
     updateGeminiOptionsVisibility();
 
-    // Restore quality/size
-    document.querySelectorAll('.btn-toggle').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.dataset.quality === image.quality) {
-            btn.classList.add('active');
-        }
-    });
+    // Restore resolution/quality
+    if (image.resolution) {
+        document.querySelectorAll('#resolutionSection .btn-toggle').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.resolution === image.resolution) {
+                btn.classList.add('active');
+                state.resolution = image.resolution;
+            }
+        });
+    }
+    if (image.quality) {
+        document.querySelectorAll('#qualitySection .btn-toggle').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.quality === image.quality) {
+                btn.classList.add('active');
+                state.quality = image.quality;
+            }
+        });
+    }
 
     // Restore aspect ratio
     document.querySelectorAll('.btn-aspect').forEach(btn => {
@@ -1335,7 +1861,8 @@ function openModal(image) {
     elements.modalMetadata.innerHTML = `
         <p><strong>Prompt:</strong> ${escapeHtml(image.prompt)}</p>
         <p><strong>Model:</strong> ${escapeHtml(image.modelName || image.model)}</p>
-        <p><strong>Size/Quality:</strong> ${escapeHtml(image.quality || image.size)}</p>
+        ${image.usageCost != null ? `<p><strong>Cost:</strong> $${Number(image.usageCost).toFixed(4)}</p>` : ''}
+        ${image.imageTokens != null ? `<p><strong>Image Tokens:</strong> ${image.imageTokens}</p>` : ''}
         <p><strong>Aspect Ratio:</strong> ${escapeHtml(image.aspectRatio)}</p>
         <p><strong>Created:</strong> ${escapeHtml(new Date(image.createdAt).toLocaleString())}</p>
         ${image.references?.length > 0 ? `<p><strong>References Used:</strong> ${escapeHtml(image.references.length)}</p>` : ''}
@@ -1376,14 +1903,24 @@ function recreateImage() {
     updateGeminiOptionsVisibility();
 
     // Restore quality/size
-    document.querySelectorAll('.btn-toggle').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.dataset.quality === state.currentImage.quality) {
-            btn.classList.add('active');
-            state.imageSize = btn.dataset.size;
-            state.imageQuality = btn.dataset.quality;
-        }
-    });
+    if (state.currentImage.resolution) {
+        document.querySelectorAll('#resolutionSection .btn-toggle').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.resolution === state.currentImage.resolution) {
+                btn.classList.add('active');
+                state.resolution = state.currentImage.resolution;
+            }
+        });
+    }
+    if (state.currentImage.quality) {
+        document.querySelectorAll('#qualitySection .btn-toggle').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.quality === state.currentImage.quality) {
+                btn.classList.add('active');
+                state.quality = state.currentImage.quality;
+            }
+        });
+    }
 
     // Restore aspect ratio
     document.querySelectorAll('.btn-aspect').forEach(btn => {
@@ -1424,8 +1961,93 @@ function downloadCurrentImage() {
 
 // ===== UI Helpers =====
 function updateGeminiOptionsVisibility() {
+    updateModelControls();
+}
+
+/**
+ * Update sidebar controls visibility based on selected model's supported_parameters.
+ * Runtime-truth = API response, not hardcoded configs.
+ */
+/** Max images per request for a model — from supported_parameters.n.max (API truth). */
+function getMaxImageCount(modelId) {
+    const model = state.allModels.find(m => m.id === modelId);
+    const nMax = model?.supported_parameters?.n?.max;
+    if (typeof nMax === 'number') return Math.max(1, nMax);
+    // Fallback before models load: Gemini & Flux only do 1; others up to 10.
+    if (modelId && (modelId.includes('gemini') || modelId.includes('flux'))) return 1;
+    return 10;
+}
+
+function updateModelControls() {
+    const model = state.allModels.find(m => m.id === state.selectedModel);    const params = model ? ImageModels.getSupportedParams(model) : [];
+
+    // Check model family for defaults
     const isGemini = state.selectedModel.includes('gemini');
-    elements.geminiOptions.style.display = isGemini ? 'flex' : 'none';
+    const isGpt = state.selectedModel.includes('gpt') || state.selectedModel.includes('openai');
+
+    if (elements.resolutionSection) {
+        // Show for any model with 'resolution' in supported_parameters
+        elements.resolutionSection.style.display = 
+            (isGemini || params.includes('resolution')) ? 'block' : 'none';
+    }
+    if (elements.aspectRatioSection) {
+        // Show for Gemini; also check supported_parameters for other models
+        elements.aspectRatioSection.style.display = 
+            (isGemini || params.includes('aspect_ratio')) ? 'block' : 'none';
+    }
+
+    if (elements.qualitySection) {
+        elements.qualitySection.style.display = 
+            (isGpt || params.includes('quality')) ? 'block' : 'none';
+    }
+    if (elements.backgroundSection) {
+        elements.backgroundSection.style.display = 
+            (isGpt || params.includes('background')) ? 'block' : 'none';
+        // gpt-image-2 only supports auto/opaque — hide transparent button
+        const transparentBtn = document.getElementById('transparentBgBtn');
+        if (transparentBtn && state.selectedModel === 'openai/gpt-image-2') {
+            transparentBtn.style.display = 'none';
+        } else if (transparentBtn) {
+            transparentBtn.style.display = '';
+        }
+    }
+
+    // Image count: always visible (n parameter). Clamp to the model's max n and
+    // disable +/- when the model only supports 1 image (Gemini/Flux) so it reads
+    // as an intentional limit, NOT a broken control (was the reported bug).
+    if (elements.imageCountSection) {
+        elements.imageCountSection.style.display = 'block';
+        const maxN = getMaxImageCount(state.selectedModel);
+        const lockedToOne = maxN <= 1;
+        if (state.imageCount > maxN) {
+            state.imageCount = maxN;
+            localStorage.setItem('imagen_count', state.imageCount);
+        }
+        if (elements.imageCount) {
+            elements.imageCount.value = state.imageCount;
+            elements.imageCount.max = maxN;
+            elements.imageCount.disabled = lockedToOne;
+        }
+        const hint = lockedToOne ? 'This model generates 1 image per request' : '';
+        if (elements.increaseCount) { elements.increaseCount.disabled = lockedToOne; elements.increaseCount.title = hint; }
+        if (elements.decreaseCount) { elements.decreaseCount.disabled = lockedToOne; elements.decreaseCount.title = hint; }
+        const countHint = document.getElementById('countHint');
+        if (countHint) {
+            countHint.textContent = lockedToOne ? '1 image / request — model limit (Gemini/Flux)' : '';
+            countHint.style.display = lockedToOne ? 'block' : 'none';
+        }
+    }
+
+    // Store current model info for generateImages
+    if (elements.modelSelectValue) {
+        const m = state.allModels.find(m => m.id === state.selectedModel);
+        if (m) {
+            elements.modelSelectValue.title = `ID: ${m.id}\nSupports: ${params.join(', ')}`;
+        }
+    }
+
+    // Update price estimate
+    updatePriceInfo();
 }
 
 function showToast(message, type = 'info') {

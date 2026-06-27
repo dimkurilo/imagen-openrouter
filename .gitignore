@@ -1,0 +1,32 @@
+# Secrets
+config.js
+.env
+# но НЕ config.example.js
+
+# Session state
+SESSION_HANDOFF.md
+
+# Logs
+app-logs.txt
+*.log
+
+# Node
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Python
+__pycache__/
+*.pyc
+
+# Playwright MCP artifacts (browser snapshots/logs from UI testing)
+.playwright-mcp/
+
+# Playwright Test artifacts
+test-results/
+playwright-report/
+/playwright/.cache
